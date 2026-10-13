@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>부산 지하철 시간대별 이용 패턴 분석</title>
+<style>
+  :root{
+    --bg:#070d1a; --bg2:#0f1b31;
+    --card:#ffffff; --ink:#0d1526; --ink2:#5a6b86;
+    --line:#e6ebf3; --soft:#f4f7fb;
+    --blue:#2563eb; --cyan:#06b6d4; --teal:#14b8a6;
+    --amber:#f59e0b; --pink:#ec4899; --red:#ef4444;
+    --shadow:0 24px 60px rgba(4,10,30,.35);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:'Pretendard','Malgun Gothic','Apple SD Gothic Neo','Noto Sans KR',system-ui,sans-serif;
+    color:var(--ink);overflow:hidden;
+    background:
+      radial-gradient(1100px 560px at 12% -8%,#1d4ed855,transparent 58%),
+      radial-gradient(900px 500px at 92% 112%,#06b6d455,transparent 55%),
+      linear-gradient(160deg,var(--bg),var(--bg2));
+  }
+  #progress{position:fixed;top:0;left:0;height:4px;width:0;z-index:100;
+    background:linear-gradient(90deg,var(--blue),var(--cyan),var(--teal));
+    transition:width .4s cubic-bezier(.4,0,.2,1)}
+
+  .deck{position:relative;width:100vw;height:100vh}
+  .slide{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    padding:clamp(14px,3vw,46px);opacity:0;visibility:hidden;
+    transform:translateY(20px) scale(.988);pointer-events:none;
+    transition:opacity .45s,transform .45s cubic-bezier(.2,.8,.2,1),visibility .45s}
+  .slide.active{opacity:1;visibility:visible;transform:none;pointer-events:auto}
+
+  .canvas{width:min(1200px,95vw);height:min(720px,93vh);background:var(--card);
+    border-radius:22px;box-shadow:var(--shadow);overflow:hidden;
+    display:flex;flex-direction:column;position:relative;border:1px solid #ffffff10}
+  .topbar{height:5px;flex:none;background:linear-gradient(90deg,var(--blue),var(--cyan),var(--teal),var(--amber))}
+  .body{flex:1;min-height:0;display:flex;flex-direction:column;padding:clamp(20px,2.8vw,40px) clamp(22px,3vw,44px) 14px}
+
+  /* header row */
+  .head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex:none}
+  .eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:800;
+    letter-spacing:.14em;text-transform:uppercase;color:var(--blue);
+    background:#2563eb12;border:1px solid #2563eb28;padding:6px 13px;border-radius:999px}
+  .eyebrow i{width:7px;height:7px;border-radius:50%;background:var(--cyan)}
+  .badge{font-size:12px;font-weight:800;color:var(--ink2);background:var(--soft);
+    border:1px solid var(--line);padding:7px 13px;border-radius:10px;white-space:nowrap}
+  h1{font-size:clamp(30px,3.9vw,50px);line-height:1.12;letter-spacing:-.025em;font-weight:850}
+  h2{font-size:clamp(20px,2.4vw,32px);line-height:1.18;letter-spacing:-.02em;font-weight:850;margin:10px 0 4px}
+  h3{font-size:15px;font-weight:800;margin-bottom:6px;display:flex;align-items:center;gap:8px}
+  p{color:var(--ink2);line-height:1.6;font-size:clamp(13px,1.25vw,15px)}
+  .grow{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center}
+
+  /* grids & cards */
+  .grid{display:grid;gap:14px}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g4{grid-template-columns:repeat(4,1fr)}
+  @media(max-width:860px){.g3,.g4{grid-template-columns:1fr 1fr}}
+  .card{background:var(--soft);border:1px solid var(--line);border-radius:16px;
+    padding:16px 17px;position:relative;overflow:hidden}
+  .card .v{font-size:clamp(21px,2.2vw,30px);font-weight:850;letter-spacing:-.02em}
+  .card .v small{font-size:13px;font-weight:800;color:var(--ink2);margin-left:3px}
+  .card .l{font-size:12.5px;font-weight:700;color:var(--ink2);margin-top:5px}
+  .card .bar{position:absolute;left:0;top:0;height:100%;width:4px;background:var(--blue)}
+  .card.cy .bar{background:var(--cyan)} .card.tl .bar{background:var(--teal)}
+  .card.am .bar{background:var(--amber)} .card.pk .bar{background:var(--pink)} .card.rd .bar{background:var(--red)}
+
+  /* top-5 horizontal bars */
+  .rank{display:flex;flex-direction:column;gap:11px}
+  .rankrow{display:grid;grid-template-columns:26px 96px 1fr 120px;align-items:center;gap:12px}
+  .rk{font-weight:850;font-size:16px;color:var(--blue)}
+  .rk.g{color:#9aa7bd}
+  .nm{font-weight:800;font-size:15px}
+  .track{background:#eef2f9;border-radius:9px;height:26px;overflow:hidden}
+  .fill{height:100%;border-radius:9px;width:0;transition:width 1s cubic-bezier(.2,.8,.2,1);
+    background:linear-gradient(90deg,#60a5fa,#2563eb)}
+  .val{text-align:right;font-weight:850;font-size:14px}
+  .val small{color:var(--ink2);font-weight:700}
+
+  /* vertical chart */
+  .chart{flex:1;display:flex;align-items:flex-end;gap:clamp(3px,.5vw,9px);min-height:120px;padding-top:16px}
+  .col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+  .col .b{width:100%;border-radius:6px 6px 3px 3px;height:0;
+    background:linear-gradient(180deg,#93c5fd,#3b82f6);transition:height .9s cubic-bezier(.2,.8,.2,1)}
+  .col.pk .b{background:linear-gradient(180deg,#fb7ba8,#ec4899);box-shadow:0 8px 18px #ec489955}
+  .col.am .b{background:linear-gradient(180deg,#5eead4,#14b8a6);box-shadow:0 8px 18px #14b8a655}
+  .col .t{font-size:clamp(8px,.9vw,11px);font-weight:800;color:var(--ink2);margin-top:7px;white-space:nowrap}
+  .col .n{position:absolute;top:-18px;font-size:10.5px;font-weight:850;opacity:0;transition:.3s}
+  .col.pk .n,.col.am .n{opacity:1} .col.pk .n{color:var(--pink)} .col.am .n{color:var(--teal)}
+  .col{position:relative}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;font-weight:700;color:var(--ink2);margin-top:8px;flex:none}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .sw{width:11px;height:11px;border-radius:3px}
+
+  .list{display:flex;flex-direction:column;gap:11px}
+  .row{display:flex;gap:13px;align-items:flex-start;background:var(--soft);
+    border:1px solid var(--line);border-radius:14px;padding:13px 16px}
+  .row .n{width:24px;height:24px;flex:none;border-radius:8px;background:#2563eb15;color:var(--blue);
+    display:grid;place-items:center;font-size:12.5px;font-weight:850}
+  .row.rd .n{background:#ef444415;color:var(--red)}
+  .row b{font-size:14px;display:block;margin-bottom:2px}
+  .row p{font-size:12.5px;line-height:1.5}
+  .concl{display:flex;gap:12px;align-items:center;border:1px solid var(--line);border-radius:14px;
+    padding:13px 16px;background:#fff;border-left:5px solid var(--blue)}
+  .concl.tl{border-left-color:var(--teal)} .concl.am{border-left-color:var(--amber)} .concl.pk{border-left-color:var(--pink)}
+  .concl .ic{font-size:19px} .concl b{font-size:14.5px} .concl p{font-size:12.5px;margin-top:2px}
+  .hl{color:var(--blue);font-weight:850}
+
+  /* speech script band */
+  .script{flex:none;margin-top:12px;background:linear-gradient(135deg,#0d1526,#1b2c4d);
+    border-radius:14px;padding:12px 16px;display:flex;gap:12px;align-items:flex-start;color:#e2e8f0}
+  .script .tag{flex:none;font-size:10.5px;font-weight:850;letter-spacing:.1em;text-transform:uppercase;
+    color:#67e8f9;border:1px solid #67e8f955;border-radius:8px;padding:5px 9px;white-space:nowrap;margin-top:1px}
+  .script .txt{font-size:clamp(11.5px,1.05vw,13px);line-height:1.55;color:#cbd5e1}
+  .script .txt b{color:#fff}
+
+  /* 3min meter */
+  .meter{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:800;color:var(--ink2)}
+  .meter .bar{width:96px;height:6px;background:#e6ebf3;border-radius:99px;overflow:hidden}
+  .meter .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--cyan),var(--teal))}
+
+  /* cover */
+  .cover{justify-content:center;gap:16px}
+  .cover .chips{display:flex;flex-wrap:wrap;gap:9px;margin-top:22px}
+  .chip{font-size:12.5px;font-weight:700;color:var(--ink2);background:var(--soft);
+    border:1px solid var(--line);padding:8px 14px;border-radius:99px}
+  .cover .foot{display:flex;align-items:center;gap:11px;color:var(--ink2);font-size:13px;font-weight:700;margin-top:auto;padding-top:22px}
+  .logo{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;color:#fff;font-weight:850;
+    background:linear-gradient(135deg,var(--blue),var(--cyan))}
+
+  /* nav */
+  .nav{position:fixed;bottom:16px;left:0;right:0;display:flex;justify-content:center;align-items:center;gap:15px;z-index:60}
+  .dots{display:flex;gap:8px}
+  .dotn{width:8px;height:8px;border-radius:99px;background:#ffffff33;border:none;padding:0;cursor:pointer;transition:.25s}
+  .dotn.on{width:24px;background:linear-gradient(90deg,var(--cyan),var(--teal))}
+  .nb{width:38px;height:38px;border-radius:50%;border:1px solid #ffffff2c;background:#ffffff14;color:#e2e8f0;
+    font-size:17px;cursor:pointer;display:grid;place-items:center;backdrop-filter:blur(6px);transition:.2s}
+  .nb:hover{background:#ffffff26}
+  .counter{position:fixed;top:18px;right:24px;z-index:80;color:#cbd5e1;font-size:12.5px;font-weight:800;letter-spacing:.08em}
+  .counter b{color:#fff} .hint{position:fixed;bottom:20px;right:24px;z-index:80;color:#94a3b8;font-size:11.5px}
+  @media(max-width:640px){.hint{display:none}}
+</style>
+</head>
+<body>
+<div id="progress"></div>
+<div class="counter"><b id="cur">1</b> / <span id="tot">8</span></div>
+<div class="hint">← → 키로 이동</div>
+<div class="deck" id="deck">
+
+  <!-- SLIDE 1 : 표지 -->
+  <section class="slide active">
+    <div class="canvas">
+      <div class="topbar"></div>
+      <div class="body cover">
+        <div class="eyebrow"><i></i>부산교통공사 공공데이터 · 데이터리터러시 과제</div>
+        <div>
+          <h1>부산 지하철<br><span class="hl">시간대별 이용 패턴</span> 분석</h1>
+          <p style="margin-top:12px;max-width:760px">2026년 1월~8월, <b style="color:var(--ink)">54,432건</b>의 승하차 기록으로
+          가장 붐비는 역과 시간대를 찾아냅니다.</p>
+        </div>
+        <div class="chips">
+          <span class="chip">🗂 시간대별 승하차인원 (CSV)</span>
+          <span class="chip">📅 2026.01.01 – 08.31 · 243일</span>
+          <span class="chip">🚉 역 108개</span>
+          <span class="chip">🧾 54,432행 × 30열</span>
+          <span class="chip">⏱ 3분 발표</span>
+        </div>
+        <div class="foot"><span class="logo">B</span>데이터 분석 발표 · 부산교통공사_시간대별 승하차인원_20260831.csv</div>
+        <div class="script">
+          <div class="tag">3분 발표 대본 · ①표지</div>
+          <div class="txt">안녕하세요. 부산 지하철의 <b>시간대별 이용 패턴</b>을 분석한 발표입니다. 저는 2026년 1월부터 8월까지의 승하차 데이터 5만 4천여 건을 활용해 <b>어느 역과 어느 시간대가 가장 붐비는지</b>를 데이터로 확인해 보았습니다. 지금부터 8장으로 핵심만 빠르게 말씀드리겠습니다.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SLIDE 2 : 목적 및 연구 질문 -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="topbar"></div>
+      <div class="body">
+        <div class="head">
+          <div><div class="eyebrow"><i></i>02 · 과제 목적</div><h2>왜 이 데이터를 분석했나?</h2></div>
+          <div class="meter">발표 진행 <span class="bar"><i style="width:25%"></i></span> 1/4</div>
+        </div>
+        <div class="grow grid g2" style="align-content:center">
+          <div class="card"><div class="bar"></div>
+            <h3>🎯 과제 목적</h3>
+            <p>시민 밀집도가 높은 부산 지하철에서 <b style="color:var(--ink)">혼잡 분산</b>과 <b style="color:var(--ink)">운행·안전 정책</b>의 기초 자료를 확보하기 위해, 승하차 데이터로 이용 패턴을 파악합니다.</p>
+          </div>
+          <div class="card cy"><div class="bar"></div>
+            <h3>❓ 연구 질문</h3>
+            <p><b style="color:var(--ink)">RQ1.</b> 승하차 인원이 가장 많은 역은 어디인가?<br>
+            <b style="color:var(--ink)">RQ2.</b> 이용이 가장 몰리는 시간대는 언제인가?<br>
+            <b style="color:var(--ink)">RQ3.</b> 이 데이터만으로 실제 '혼잡도'를 말할 수 있는가?</p>
+          </div>
+        </div>
+        <div class="script">
+          <div class="tag">3분 발표 대본 · ②목적</div>
+          <div class="txt">먼저 분석 목적입니다. 지하철 혼잡은 단순한 불편을 넘어 안전과 직결되기 때문에, <b>이용이 집중되는 역과 시간대를 데이터로 규명</b>하는 것이 목적입니다. 이를 위해 세 가지 연구 질문을 세웠습니다. 첫째, 가장 붐비는 역은 어디인가. 둘째, 피크 시간대는 언제인가. 셋째, 이 데이터로 실제 혼잡도까지 말할 수 있는가입니다.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SLIDE 3 : 데이터 개요 -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="topbar"></div>
+      <div class="body">
+        <div class="head">
+          <div><div class="eyebrow"><i></i>03 · 데이터 개요</div><h2>데이터 구조 한눈에 보기</h2></div>
+          <div class="meter">발표 진행 <span class="bar"><i style="width:38%"></i></span> 2/4</div>
+        </div>
+        <div class="grid g4" style="margin:14px 0 12px">
+          <div class="card"><div class="bar"></div><div class="v">54,432</div><div class="l">전체 행(레코드)</div></div>
+          <div class="card cy"><div class="bar"></div><div class="v">30</div><div class="l">열(변수) 개수</div></div>
+          <div class="card tl"><div class="bar"></div><div class="v">0</div><div class="l">결측치 (누락 없음)</div></div>
+          <div class="card am"><div class="bar"></div><div class="v">243<small>일</small></div><div class="l">분석 기간 (1~8월)</div></div>
+        </div>
+        <div class="grow grid g2" style="align-content:center;gap:12px">
+          <div class="card"><div class="bar"></div>
+            <h3>🧱 주요 컬럼 구성</h3>
+            <p>· <b style="color:var(--ink)">식별/분류</b> : 역번호, 역명, 년월일, 요일, 구분(승차·하차)<br>
+            · <b style="color:var(--ink)">집계</b> : 합계<br>
+            · <b style="color:var(--ink)">시간대</b> : 01시-02시 ~ 24시-01시 (24개 열)</p>
+          </div>
+          <div class="card pk"><div class="bar"></div>
+            <h3>✅ 품질 검증</h3>
+            <p>결측치 <b style="color:var(--ink)">0건</b>으로 깨끗하며, <b style="color:var(--ink)">합계 = 24개 시간대 합</b>이 전 행에서 일치(검증 100%)했습니다. 총 승하차 <b style="color:var(--ink)">4억 3,347만 명</b>.</p>
+          </div>
+        </div>
+        <div class="script">
+          <div class="tag">3분 발표 대본 · ③데이터</div>
+          <div class="txt">데이터는 총 <b>54,432행, 30개 열</b>입니다. 역 단위로 날짜·방향별 24개 시간대 인원을 담고 있습니다. 중요한 점은 <b>결측치가 0건</b>이라는 것, 그리고 각 행의 '합계'가 24개 시간대 값의 합과 <b>100% 일치</b>해 데이터 신뢰도가 높다는 것입니다.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SLIDE 4 : TOP5 역 -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="topbar"></div>
+      <div class="body">
+        <div class="head">
+          <div><div class="eyebrow"><i></i>04 · 주요 분석 ①</div><h2>승하차 인원 상위 5개 역</h2></div>
+          <div class="meter">발표 진행 <span class="bar"><i style="width:50%"></i></span> 2/4</div>
+        </div>
+        <p style="margin:10px 0 14px">기간 누적 승하차 기준 · 단위: 명</p>
+        <div class="grow rank" id="rank" style="justify-content:center">
+          <div class="rankrow"><span class="rk">1</span><span class="nm">서면</span><div class="track"><div class="fill" data-w="100"></div></div><span class="val">31,732,555 <small>명</small></span></div>
+          <div class="rankrow"><span class="rk">2</span><span class="nm">연산</span><div class="track"><div class="fill" data-w="42"></div></div><span class="val">13,180,599 <small>명</small></span></div>
+          <div class="rankrow"><span class="rk">3</span><span class="nm">부산역</span><div class="track"><div class="fill" data-w="39"></div></div><span class="val">12,326,609 <small>명</small></span></div>
+          <div class="rankrow"><span class="rk">4</span><span class="nm">사상</span><div class="track"><div class="fill" data-w="35"></div></div><span class="val">11,210,722 <small>명</small></span></div>
+          <div class="rankrow"><span class="rk g">5</span><span class="nm">센텀시티</span><div class="track"><div class="fill" data-w="33"></div></div><span class="val">10,535,603 <small>명</small></span></div>
+        </div>
+        <div class="grid g3" style="margin-top:12px">
+          <div class="card"><div class="bar"></div><div class="v" style="font-size:17px">서면 <small>1위</small></div><div class="l">2위의 약 2.4배 · 1·2호선 환승</div></div>
+          <div class="card cy"><div class="bar"></div><div class="v" style="font-size:17px">환승역 강세</div><div class="l">서면·연산·사상 모두 환승 거점</div></div>
+          <div class="card tl"><div class="bar"></div><div class="v" style="font-size:17px">부산역</div><div class="l">KTX 연계 · 관광 수요 반영</div></div>
+        </div>
+        <div class="script">
+          <div class="tag">3분 발표 대본 · ④TOP5 역</div>
+          <div class="txt">첫 번째 분석 결과입니다. 누적 승하차가 가장 많은 역은 <b>서면으로 약 3,173만 명</b>, 2위의 2.4배에 달합니다. 이어 <b>연산, 부산역, 사상, 센텀시티</b> 순입니다. 상위 5개 역 중 서면·연산·사상은 모두 <b>환승 거점</b>이며, 부산역은 KTX와 연계된 관광 수요가 반영된 것으로 보입니다.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SLIDE 5 : 피크 타임 -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="topbar"></div>
+      <div class="body">
+        <div class="head">
+          <div><div class="eyebrow"><i></i>05 · 주요 분석 ②</div><h2>피크 타임 & 시간대별 패턴</h2></div>
+          <div class="meter">발표 진행 <span class="bar"><i style="width:62%"></i></span> 3/4</div>
+        </div>
+        <p style="margin:10px 0 2px">24개 시간대 총 승하차 인원 (단위: 백만 명) · 뚜렷한 <b class="hl">출퇴근 쌍봉</b></p>
+        <div class="chart" id="chart"></div>
+        <div class="legend">
+          <span><i class="sw" style="background:#ec4899"></i>최대 피크 18–19시</span>
+          <span><i class="sw" style="background:#14b8a6"></i>아침 피크 08–09시</span>
+          <span><i class="sw" style="background:#3b82f6"></i>일반 시간대</span>
+          <span style="color:var(--ink)">승차 피크 17–18시 / 하차 피크 18–19시</span>
+        </div>
+        <div class="script">
+          <div class="tag">3분 발표 대본 · ⑤피크타임</div>
+          <div class="txt">두 번째 분석입니다. 하루 중 이용이 가장 몰리는 시간은 <b>저녁 6시~7시, 약 3,815만 명</b>입니다. 그다음이 17~18시, 아침 8~9시 순으로 <b>출근과 퇴근에 뚜렷한 두 개의 봉우리</b>가 나타납니다. 방향별로 보면 승차는 17~18시, 하차는 18~19시에 정점을 이뤄 퇴근 흐름이 명확합니다.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SLIDE 6 : 결과 요약 -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="topbar"></div>
+      <div class="body">
+        <div class="head">
+          <div><div class="eyebrow"><i></i>06 · 분석 결과 요약</div><h2>데이터가 말해주는 것</h2></div>
+          <div class="meter">발표 진행 <span class="bar"><i style="width:75%"></i></span> 3/4</div>
+        </div>
+        <div class="grow" style="display:flex;flex-direction:column;gap:11px;justify-content:center;margin-top:12px">
+          <div class="concl"><span class="ic">🏆</span><div><b>가장 붐비는 역 · 서면 (3,173만 명)</b><p>환승·도심 거점 집중 → 연산·부산역·사상·센텀시티 순</p></div></div>
+          <div class="concl pk"><span class="ic">⏰</span><div><b>가장 몰리는 시간 · 18–19시 (3,815만 명)</b><p>08–09시 출근, 17–18시 퇴근 승차의 쌍봉 구조</p></div></div>
+          <div class="concl tl"><span class="ic">📆</span><div><b>주중 &gt; 주말</b><p>주중 일평균 191만 명 vs 주말 148만 명 (약 29% 차이)</p></div></div>
+          <div class="concl am"><span class="ic">🌙</span><div><b>심야는 급감</b><p>03–04시 5,125명으로 하루 최저, 새벽 시간대 이용 희박</p></div></div>
+        </div>
+        <div class="script">
+          <div class="tag">3분 발표 대본 · ⑥결과 요약</div>
+          <div class="txt">지금까지의 결과를 요약하면, <b>서면이 압도적 1위 역</b>이고, <b>저녁 6~7시가 최대 피크</b>입니다. 그리고 <b>주중이 주말보다 약 29% 더 붐빕니다.</b> 대신 새벽 3~4시는 5천여 명에 그치는 등 <b>심야 이용은 매우 적습니다.</b> 즉 부산 지하철은 통근 중심의 뚜렷한 리듬을 보입니다.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SLIDE 7 : 한계점 -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="topbar"></div>
+      <div class="body">
+        <div class="head">
+          <div><div class="eyebrow"><i></i>07 · 데이터 한계점</div><h2>설계 검증: 무엇을 말할 수 없나</h2></div>
+          <div class="meter">발표 진행 <span class="bar"><i style="width:88%"></i></span> 4/4</div>
+        </div>
+        <div class="grow grid g2" style="align-content:center;gap:12px;margin-top:12px">
+          <div class="row rd"><span class="n">1</span><div><b>혼잡도 ≠ 승하차 인원</b><p>열차 정원·배차간격·재차인원이 없어 <b>실제 만원도(혼잡률)</b>는 계산 불가 → 이용량 기준 상대 순위만 가능</p></div></div>
+          <div class="row"><span class="n">2</span><div><b>호선 정보 열 없음</b><p>역번호 앞자리로 호선을 유추해야 하고, 서면·연산·동래·덕천 <b>환승역은 호선별 분리 집계</b>되어 통합 해석에 주의</p></div></div>
+          <div class="row"><span class="n">3</span><div><b>OD(출발→도착) 분석 불가</b><p>승차·하차가 <b>별개 행</b>으로만 존재해 개인 이동 경로 페어링이 불가능</p></div></div>
+          <div class="row"><span class="n">4</span><div><b>기간·특수일 한계</b><p>2026년 <b>1~8월만</b> 포함(9~12월 누락), 공휴일·행사일 플래그가 없어 요일 해석에 왜곡 가능</p></div></div>
+        </div>
+        <div class="script">
+          <div class="tag">3분 발표 대본 · ⑦한계</div>
+          <div class="txt">마지막으로 데이터 한계를 짚겠습니다. 이 데이터는 <b>승하차 인원</b>일 뿐, 정원·배차 정보가 없어 <b>실제 혼잡도는 알 수 없습니다.</b> 또한 호선 열이 없고 환승역은 호선별로 나뉘어 있으며, 승차·하차가 별개라 <b>출발-도착 경로 분석도 불가능</b>합니다. 기간도 1~8월로 제한적입니다.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SLIDE 8 : 최종 요약 & Q&A -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="topbar"></div>
+      <div class="body">
+        <div class="head">
+          <div><div class="eyebrow"><i></i>08 · 마무리</div><h2>최종 요약 &amp; Q&amp;A</h2></div>
+          <div class="meter">발표 진행 <span class="bar"><i style="width:100%"></i></span> 완료</div>
+        </div>
+        <div class="grid g3" style="margin:16px 0 14px">
+          <div class="card"><div class="bar"></div><div class="v" style="font-size:19px">서면</div><div class="l">최다 이용 역 · 3,173만 명</div></div>
+          <div class="card pk"><div class="bar"></div><div class="v" style="font-size:19px">18–19시</div><div class="l">최대 피크 시간대</div></div>
+          <div class="card tl"><div class="bar"></div><div class="v" style="font-size:19px">주중 +29%</div><div class="l">주말 대비 혼잡</div></div>
+        </div>
+        <div class="grow" style="display:flex;flex-direction:column;justify-content:center;gap:12px">
+          <div class="concl"><span class="ic">💡</span><div><b>결론</b><p>54,432행·결측치 0의 신뢰도 높은 데이터로 <b>이용량 기준</b> 최혼잡 역(서면)과 시간대(18–19시)를 명확히 규명했습니다.</p></div></div>
+          <div class="concl tl"><span class="ic">🚀</span><div><b>제언 · 다음 단계</b><p>정원·배차 데이터를 병합하면 <b>실제 혼잡도</b>로 확장 가능하며, 환승역 호선 통합과 공휴일 보정으로 정확도를 높일 수 있습니다.</p></div></div>
+        </div>
+        <div class="script">
+          <div class="tag">3분 발표 대본 · ⑧마무리</div>
+          <div class="txt">정리하겠습니다. 부산 지하철은 <b>서면</b>에 이용이 집중되고, <b>저녁 6~7시</b>에 가장 붐비는 통근형 패턴을 보입니다. 다만 이번 분석은 <b>이용량 기준</b>이며, 다음 단계로 정원·배차 데이터를 결합하면 실제 혼잡도 분석으로 확장할 수 있습니다. 이상입니다. <b>감사합니다. 질문 있으시면 말씀해 주세요.</b></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div class="nav">
+  <button class="nb" id="prev">‹</button>
+  <div class="dots" id="dots"></div>
+  <button class="nb" id="next">›</button>
+</div>
+
+<script>
+  const hourly=[["01-02",20402],["02-03",11846],["03-04",5125],["04-05",139396],
+    ["05-06",4062403],["06-07",9204264],["07-08",19867210],["08-09",35886820],
+    ["09-10",25434532],["10-11",23876011],["11-12",26394615],["12-13",27678591],
+    ["13-14",28346484],["14-15",27778152],["15-16",29959290],["16-17",32901078],
+    ["17-18",36867589],["18-19",38150101],["19-20",20785781],["20-21",16252593],
+    ["21-22",13502360],["22-23",9851432],["23-24",5499191],["24-01",995382]];
+
+  // move in-canvas script bands to overflow-safe: keep inside DOM (already inline). Build chart.
+  const chart=document.getElementById('chart');
+  const max=Math.max(...hourly.map(h=>h[1]));
+  const fmt=n=>n>=1e6?(n/1e6).toFixed(1)+'M':(n/1e3).toFixed(0)+'K';
+  hourly.forEach(([l,v])=>{
+    const pk=(l==="17-18"||l==="18-19"), am=(l==="08-09");
+    const c=document.createElement('div');
+    c.className='col'+(pk?' pk':'')+(am?' am':'');
+    c.innerHTML=`<div class="n">${fmt(v)}</div><div class="b" data-h="${(v/max*100).toFixed(1)}"></div><div class="t">${l}</div>`;
+    chart.appendChild(c);
+  });
+
+  const slides=[...document.querySelectorAll('.slide')];
+  const dotsWrap=document.getElementById('dots');
+  const cur=document.getElementById('cur');
+  document.getElementById('tot').textContent=slides.length;
+  let idx=0;
+  slides.forEach((_,i)=>{const d=document.createElement('button');d.className='dotn'+(i?'':' on');d.onclick=()=>go(i);dotsWrap.appendChild(d);});
+  const dots=[...dotsWrap.children];
+
+  function anim(){
+    document.querySelectorAll('.col .b').forEach((b,i)=>{b.style.height='0';setTimeout(()=>b.style.height=b.dataset.h+'%',60+i*30);});
+    document.querySelectorAll('#rank .fill').forEach((f,i)=>{f.style.width='0';setTimeout(()=>f.style.width=f.dataset.w+'%',80+i*90);});
+  }
+  function go(n){
+    idx=Math.max(0,Math.min(slides.length-1,n));
+    slides.forEach((s,i)=>s.classList.toggle('active',i===idx));
+    dots.forEach((d,i)=>d.classList.toggle('on',i===idx));
+    cur.textContent=idx+1;
+    document.getElementById('progress').style.width=(idx/(slides.length-1)*100)+'%';
+    if(idx===4) anim();
+  }
+  document.getElementById('prev').onclick=()=>go(idx-1);
+  document.getElementById('next').onclick=()=>go(idx+1);
+  addEventListener('keydown',e=>{
+    if(['ArrowRight','ArrowDown','PageDown',' '].includes(e.key)){e.preventDefault();go(idx+1);}
+    if(['ArrowLeft','ArrowUp','PageUp'].includes(e.key)){e.preventDefault();go(idx-1);}
+    if(e.key==='Home')go(0); if(e.key==='End')go(slides.length-1);
+  });
+  go(0);
+</script>
+</body>
+</html>
